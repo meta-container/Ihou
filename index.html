@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gesture Gallery Pro (Fixed)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #050505;
+            --glass-bg: rgba(20, 20, 20, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --accent-color: #00d4ff;
+            --text-main: #ffffff;
+            --text-muted: #aaaaaa;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-dark);
+            overflow: hidden;
+            font-family: 'Montserrat', sans-serif;
+            color: var(--text-main);
+        }
+
+        body {
+            background: radial-gradient(circle at 50% 50%, #1a1a1a 0%, #000000 100%);
+        }
+
+        #viewer-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #active-image {
+            max-width: 90%;
+            max-height: 85%;
+            object-fit: contain; 
+            opacity: 0;
+            transform: scale(0.95);
+            transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1), transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 4px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            z-index: 1;
+        }
+
+        #active-image.loaded {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            z-index: 10;
+        }
+
+        #info-overlay {
+            position: absolute;
+            top: 30px;
+            left: 30px;
+            padding: 15px 25px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            border-left: 3px solid var(--accent-color);
+        }
+
+        #info-overlay h2 { margin: 0; font-weight: 600; font-size: 1.1rem; text-transform: uppercase; }
+        #info-overlay .meta { font-size: 0.85rem; color: var(--text-muted); font-weight: 300; }
+        #info-overlay .meta span { color: var(--accent-color); font-weight: 600; }
+
+        /* Webcam Container */
+        #webcam-wrapper {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            width: 240px;
+            height: 180px;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--glass-border);
+            z-index: 20;
+            transition: opacity 0.3s;
+        }
+
+        #webcam-preview {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); 
+            opacity: 0.8;
+        }
+
+        #hand-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            transform: scaleX(-1);
+            z-index: 21;
+            pointer-events: none;
+        }
+
+        #gesture-indicator {
+            position: absolute;
+            bottom: 220px;
+            right: 30px;
+            padding: 8px 16px;
+            font-size: 0.8rem;
+            border-radius: 20px;
+            background: rgba(0, 212, 255, 0.1);
+            border: 1px solid var(--accent-color);
+            color: var(--accent-color);
+            opacity: 0;
+            transition: opacity 0.3s;
+            text-transform: uppercase;
+            font-weight: 600;
+            pointer-events: none;
+        }
+
+        #gesture-indicator.active { opacity: 1; }
+
+        #progress-dots {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 8px;
+            z-index: 10;
+        }
+
+        .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.2);
+            transition: all 0.3s;
+        }
+        .dot.active {
+            background: var(--accent-color);
+            box-shadow: 0 0 10px var(--accent-color);
+            transform: scale(1.4);
+        }
+
+        #toast {
+            position: absolute;
+            top: 40px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-100px);
+            background: #ff4757;
+            color: white;
+            padding: 12px 30px;
+            border-radius: 30px;
+            font-weight: 600;
+            box-shadow: 0 10px 20px rgba(255, 71, 87, 0.3);
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 100;
+            text-align: center;
+        }
+        #toast.show { transform: translateX(-50%) translateY(0); }
+        
+        /* Click zones for fallback */
+        .click-zone {
+            position: absolute;
+            top: 0;
+            height: 100%;
+            width: 10%;
+            z-index: 5;
+            cursor: pointer;
+        }
+        #zone-left { left: 0; }
+        #zone-right { right: 0; }
+    </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1640029074/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1620248257/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+    <div id="viewer-container">
+        <div id="zone-left" class="click-zone" onclick="prevImage()"></div>
+        <div id="zone-right" class="click-zone" onclick="nextImage()"></div>
+
+        <img id="active-image" alt="Gallery Image" />
+        
+        <div id="info-overlay" class="glass-panel">
+            <h2>Gesture Gallery</h2>
+            <div class="meta">File: <span id="ui-filename">Loading...</span></div>
+            <div class="meta">Slide: <span id="ui-index">0</span> / <span id="ui-total">0</span></div>
+        </div>
+
+        <div id="gesture-indicator">Hand Detected</div>
+
+        <div id="webcam-wrapper" class="glass-panel">
+            <video id="webcam-preview" autoplay playsinline muted></video>
+            <canvas id="hand-canvas"></canvas>
+        </div>
+
+        <div id="progress-dots"></div>
+        <div id="toast">System Ready</div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. CONFIGURATION
+        // ==========================================
+        const ASSETS_FOLDER = 'assets/';
+        const LOCAL_IMAGES = Array.from({length: 15}, (_, i) => `${i + 1}.jpg`);
+
+        // ==========================================
+        // 2. STATE
+        // ==========================================
+        let currentIndex = 0;
+        let handPosXHistory = [];
+        let lastGestureTime = 0;
+        
+        const GESTURE_DEBOUNCE_MS = 1000;
+        const GESTURE_THRESHOLD = 0.06; // Screen width percentage required to trigger swipe
+
+        const imgElement = document.getElementById('active-image');
+        const videoElement = document.getElementById('webcam-preview');
+        const canvasElement = document.getElementById('hand-canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const gestureIndicator = document.getElementById('gesture-indicator');
+        const dotsContainer = document.getElementById('progress-dots');
+        const webcamWrapper = document.getElementById('webcam-wrapper');
+
+        // ==========================================
+        // 3. UI FUNCTIONS
+        // ==========================================
+        function initDots() {
+            dotsContainer.innerHTML = '';
+            LOCAL_IMAGES.forEach((_, i) => {
+                const dot = document.createElement('div');
+                dot.classList.add('dot');
+                if (i === 0) dot.classList.add('active');
+                dotsContainer.appendChild(dot);
+            });
+            document.getElementById('ui-total').innerText = LOCAL_IMAGES.length;
+        }
+
+        function updateActiveDot(index) {
+            const dots = document.querySelectorAll('.dot');
+            dots.forEach((d, i) => {
+                d.classList.toggle('active', i === index);
+            });
+        }
+
+        function showToast(message, isError = false) {
+            const toast = document.getElementById('toast');
+            toast.innerText = message;
+            toast.style.background = isError ? '#ff4757' : '#00d4ff';
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        function showImage(index) {
+            if (LOCAL_IMAGES.length === 0) return;
+
+            if (index < 0) currentIndex = LOCAL_IMAGES.length - 1;
+            else if (index >= LOCAL_IMAGES.length) currentIndex = 0;
+            else currentIndex = index;
+
+            const filename = LOCAL_IMAGES[currentIndex];
+            const imagePath = `${ASSETS_FOLDER}${filename}`;
+            
+            imgElement.classList.remove('loaded');
+
+            const tempImg = new Image();
+            tempImg.onload = () => {
+                imgElement.src = imagePath;
+                setTimeout(() => imgElement.classList.add('loaded'), 50);
+                
+                document.getElementById('ui-filename').innerText = filename;
+                document.getElementById('ui-index').innerText = currentIndex + 1;
+                updateActiveDot(currentIndex);
+            };
+            tempImg.onerror = () => {
+                showToast(`Missing: ${filename} (Fallback Active)`, true);
+            }
+            tempImg.src = imagePath;
+        }
+
+        function nextImage() { 
+            showImage(currentIndex + 1); 
+            flashFeedback("Swiped Right");
+        }
+        function prevImage() { 
+            showImage(currentIndex - 1); 
+            flashFeedback("Swiped Left");
+        }
+
+        function flashFeedback(text) {
+            gestureIndicator.innerText = text;
+            gestureIndicator.classList.add('active');
+            setTimeout(() => gestureIndicator.classList.remove('active'), 800);
+        }
+
+        // ==========================================
+        // 4. GESTURE LOGIC (FIXED)
+        // ==========================================
+        function initGestureControl() {
+            if (typeof Hands === 'undefined') {
+                showToast("MediaPipe Library Failed to Load", true);
+                return;
+            }
+
+            // FIXED: Using pinned version for locateFile
+            const hands = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`
+            });
+
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.7,
+                minTrackingConfidence: 0.6
+            });
+
+            hands.onResults(onHandResults);
+
+            const camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    await hands.send({ image: videoElement });
+                },
+                width: 640,
+                height: 480
+            });
+
+            camera.start()
+                .then(() => {
+                    console.log("Camera started successfully");
+                    showToast("Camera Active: Swipe Hand Left/Right");
+                })
+                .catch(err => {
+                    console.error("Camera Error:", err);
+                    showToast("Camera Blocked! Use Arrow Keys or Click Sides.", true);
+                    webcamWrapper.style.opacity = "0.3"; 
+                });
+        }
+
+        function onHandResults(results) {
+            canvasElement.width = videoElement.videoWidth;
+            canvasElement.height = videoElement.videoHeight;
+            
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const landmarks = results.multiHandLandmarks[0];
+                
+                // Draw skeleton
+                drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#00d4ff', lineWidth: 2});
+                drawLandmarks(canvasCtx, landmarks, {color: '#ffffff', lineWidth: 1, radius: 3});
+
+                gestureIndicator.innerText = "Tracking Hand";
+                gestureIndicator.classList.add('active');
+
+                // FIXED: Use the Wrist (Landmark 0) instead of Index Tip for far more stable tracking
+                const wrist = landmarks[0];
+                handPosXHistory.push(wrist.x);
+
+                // Keep a rolling buffer of 10 frames
+                if (handPosXHistory.length > 10) {
+                    handPosXHistory.shift();
+                }
+
+                if (handPosXHistory.length === 10) {
+                    const startX = handPosXHistory[0];
+                    const endX = handPosXHistory[9];
+                    const deltaX = endX - startX;
+
+                    const now = Date.now();
+                    if (now - lastGestureTime > GESTURE_DEBOUNCE_MS) {
+                        
+                        // FIXED MATH: The camera is visually mirrored, but MediaPipe sees the raw feed.
+                        // Moving your hand physically RIGHT makes the X coordinate DECREASE (Negative Delta).
+                        if (deltaX < -GESTURE_THRESHOLD) {
+                            nextImage();
+                            lastGestureTime = now;
+                            handPosXHistory = [];
+                        } 
+                        // Moving your hand physically LEFT makes the X coordinate INCREASE (Positive Delta).
+                        else if (deltaX > GESTURE_THRESHOLD) {
+                            prevImage();
+                            lastGestureTime = now;
+                            handPosXHistory = [];
+                        }
+                    }
+                }
+            } else {
+                gestureIndicator.classList.remove('active');
+                handPosXHistory = [];
+            }
+            canvasCtx.restore();
+        }
+
+        // ==========================================
+        // 5. INITIALIZATION
+        // ==========================================
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight') nextImage();
+            else if (e.key === 'ArrowLeft') prevImage();
+        });
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initDots();
+            showImage(0);
+            initGestureControl();
+        });
+
+    </script>
+</body>
+</html>
